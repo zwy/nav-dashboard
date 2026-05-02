@@ -3,9 +3,9 @@
   <rect x="10" y="10" width="18" height="18" rx="4" fill="white" opacity="0.95"/>
   <rect x="36" y="10" width="18" height="18" rx="4" fill="white" opacity="0.6"/>
   <rect x="10" y="36" width="18" height="18" rx="4" fill="white" opacity="0.6"/>
-  <rect x="36" y="36" width="8" height="8" rx="2" fill="white" opacity="0.9"/>
-  <rect x="46" y="36" width="8" height="8" rx="2" fill="white" opacity="0.5"/>
-  <rect x="36" y="46" width="8" height="8" rx="2" fill="white" opacity="0.5"/>
-  <rect x="46" y="46" width="8" height="8" rx="2" fill="white" opacity="0.3"/>
+  <rect x="36" y="36" width="8"  height="8"  rx="2" fill="white" opacity="0.9"/>
+  <rect x="46" y="36" width="8"  height="8"  rx="2" fill="white" opacity="0.5"/>
+  <rect x="36" y="46" width="8"  height="8"  rx="2" fill="white" opacity="0.5"/>
+  <rect x="46" y="46" width="8"  height="8"  rx="2" fill="white" opacity="0.3"/>
   <path d="M19 15 L23 22 L19 20.5 L15 22 Z" fill="#01696f" opacity="0.8"/>
 </svg>
