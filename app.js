@@ -1,6 +1,6 @@
 /* ===================================================
- * nav-dashboard  app.js  v1.1
- * 功能：数据层、渲染、去重、快照/撤销、导入导出增强
+ * nav-dashboard  app.js  v1.1.1
+ * 修复：openUrl 协议白名单 / normalizeUrl 无效自赋值
  * =================================================== */
 
 const COLORS = ['#01696f','#437a22','#964219','#a12c7b','#006494','#7a39bb','#da7101','#d19900','#a13544'];
@@ -18,7 +18,7 @@ function normalizeUrl(raw) {
     const u = new URL(s);
     u.hostname = u.hostname.toLowerCase().replace(/^www\./, '');
     u.pathname = u.pathname.replace(/\/+$/, '') || '/';
-    u.search = u.search;
+    // 注：u.search 保留原值，无需自赋值
     return u.hostname + u.pathname + u.search;
   } catch { return raw.trim().toLowerCase(); }
 }
@@ -76,7 +76,6 @@ const App = (() => {
       const s = localStorage.getItem(STORAGE_KEY);
       if (s) {
         const parsed = JSON.parse(s);
-        // 兼容 v1 数据（无 version 字段）
         if (!parsed.version) parsed.version = 1;
         data = parsed;
       }
@@ -218,7 +217,16 @@ const App = (() => {
 
   /* ---------- 书签 CRUD ---------- */
   function selectCat(id) { currentCat = id; render(); }
-  function openUrl(url) { window.open(url, '_blank', 'noopener,noreferrer'); }
+
+  /**
+   * openUrl — 协议白名单：只允许 http / https
+   * 防止 javascript: / data: 等协议被注入执行
+   */
+  function openUrl(url) {
+    if (!/^https?:\/\//i.test(url)) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
   function handleSearch(q) { searchQuery = q.trim(); renderContent(); }
 
   function openBkModal(id) {
@@ -249,7 +257,6 @@ const App = (() => {
 
   function onUrlInput(val) {
     clearTimeout(urlTimer);
-    // 实时去重检测
     const dupWarn = document.getElementById('bk-dup-warning');
     if (val.startsWith('http') && isDuplicate(val, editBkId)) {
       const dup = findDuplicate(val, editBkId);
@@ -280,7 +287,6 @@ const App = (() => {
     let finalUrl = url;
     if (!finalUrl.startsWith('http')) finalUrl = 'https://' + finalUrl;
 
-    // 去重拦截（同一 URL 不能重复新增，编辑时排除自身）
     if (isDuplicate(finalUrl, editBkId)) {
       const dup = findDuplicate(finalUrl, editBkId);
       if (!confirm(`已存在相同链接的书签「${dup ? dup.title : ''}」，仍要继续保存？`)) return;
@@ -299,7 +305,7 @@ const App = (() => {
 
   function deleteBk(id) {
     if (!confirm('确认删除这个书签？')) return;
-    save(); // 先快照
+    save();
     data.bookmarks = data.bookmarks.filter(b => b.id !== id);
     save(false); render(); toast('已删除');
   }
@@ -364,7 +370,7 @@ const App = (() => {
     toast('已导出 JSON 文件');
   }
 
-  /* ---------- JSON 导入：解析阶段 ---------- */
+  /* ---------- JSON 导入 ---------- */
   function importJson(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -384,7 +390,7 @@ const App = (() => {
     event.target.value = '';
   }
 
-  /* ---------- Chrome 书签 HTML 导入：解析阶段 ---------- */
+  /* ---------- Chrome 书签 HTML 导入 ---------- */
   function importChromeHtml(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -406,30 +412,26 @@ const App = (() => {
     const doc = parser.parseFromString(html, 'text/html');
     const categories = [];
     const bookmarks = [];
-    const catMap = {}; // folderName -> catId
+    const catMap = {};
 
     function getCatId(folderName) {
       if (!folderName) return null;
       if (catMap[folderName]) return catMap[folderName];
-      // 匹配现有分类
       const existing = data.categories.find(c => c.name === folderName);
       if (existing) { catMap[folderName] = existing.id; return existing.id; }
-      // 创建新分类
       const id = uid();
       categories.push({ id, name: folderName, color: COLORS[categories.length % COLORS.length] });
       catMap[folderName] = id;
       return id;
     }
 
-    // DT > A 标签是书签，DL > DT > H3 是文件夹
     function walkDl(dl, folderName) {
       const items = dl.querySelectorAll(':scope > dt');
       items.forEach(dt => {
         const a = dt.querySelector(':scope > a');
         const h3 = dt.querySelector(':scope > h3');
         const subDl = dt.querySelector(':scope > dl');
-
-        if (a && a.href && a.href.startsWith('http')) {
+        if (a && a.href && /^https?:\/\//i.test(a.href)) {
           bookmarks.push({
             id: uid(),
             title: a.textContent.trim() || hostLabel(a.href),
@@ -442,7 +444,6 @@ const App = (() => {
         }
         if (h3 && subDl) {
           const subFolder = h3.textContent.trim();
-          // 跳过根容器名（Bookmarks bar / 其他书签 等）
           const skipNames = ['书签栏','其他书签','移动设备书签','Bookmarks bar','Other bookmarks','Mobile bookmarks'];
           const nextFolder = skipNames.includes(subFolder) ? folderName : subFolder;
           walkDl(subDl, nextFolder);
@@ -452,7 +453,6 @@ const App = (() => {
 
     const rootDl = doc.querySelector('dl');
     if (rootDl) walkDl(rootDl, null);
-
     return { bookmarks, categories };
   }
 
@@ -460,12 +460,9 @@ const App = (() => {
   function showImportModal(payload) {
     importPayload = payload;
     const modal = document.getElementById('import-modal');
-
-    // 统计
     const newBks = payload.bookmarks.filter(b => !isDuplicate(b.url));
     const dupBks = payload.bookmarks.length - newBks.length;
     const newCats = payload.categories.filter(c => !data.categories.find(x => x.name === c.name));
-
     document.getElementById('import-preview-content').innerHTML = `
       <div class="preview-row"><span>书签总数</span><strong>${payload.bookmarks.length}</strong></div>
       <div class="preview-row"><span>新书签（不重复）</span><strong>${newBks.length}</strong></div>
@@ -473,8 +470,6 @@ const App = (() => {
       <div class="preview-row"><span>新增分类</span><strong>${newCats.length}</strong></div>
       <div class="preview-row"><span>来源</span><strong>${payload.source === 'chrome' ? 'Chrome 书签 HTML' : 'JSON 文件'}</strong></div>
     `;
-
-    // 默认选策略
     selectStrategy('merge');
     modal.classList.add('open');
   }
@@ -494,15 +489,12 @@ const App = (() => {
   function confirmImport() {
     if (!importPayload) return;
     const strategy = document.querySelector('.strategy-opt.selected')?.dataset.value || 'merge';
-    save(); // 快照
-
+    save();
     if (strategy === 'overwrite') {
-      // 覆盖：清空后全量写入
       data.bookmarks = importPayload.bookmarks;
       const newCats = importPayload.categories.filter(c => !data.categories.find(x => x.name === c.name));
       data.categories = [...data.categories, ...newCats];
     } else {
-      // 合并：跳过重复书签
       let added = 0;
       importPayload.bookmarks.forEach(b => {
         if (!isDuplicate(b.url)) {
@@ -510,7 +502,6 @@ const App = (() => {
           added++;
         }
       });
-      // 合并分类（按名称去重）
       importPayload.categories.forEach(c => {
         if (!data.categories.find(x => x.name === c.name)) {
           data.categories.push({ ...c, id: uid() });
@@ -518,7 +509,6 @@ const App = (() => {
       });
       toast(`已导入 ${added} 个书签（跳过 ${importPayload.bookmarks.length - added} 个重复）`);
     }
-
     save(false);
     closeImportModal();
     render();
@@ -572,7 +562,6 @@ const App = (() => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); document.getElementById('search').focus(); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); undo(); }
     });
-    // 导入策略点击
     document.querySelectorAll('.strategy-opt').forEach(el => {
       el.addEventListener('click', () => selectStrategy(el.dataset.value));
     });
